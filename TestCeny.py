@@ -4,6 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import chromedriver_autoinstaller
+import pandas as pd
 
 # Automatically install the matching ChromeDriver version
 chromedriver_autoinstaller.install()
@@ -33,11 +34,20 @@ def check_price_change(product_url, expected_price):
             print(f"Inna cena {current_price_value}")
     except Exception as e:
         print(f"Error occured: {e}")
-    finally:
+
+#Wczytujemy dane z pliku excel
+excel_file = "C:\\Users\\mimarek\\OneDrive - LPP S.A\\Desktop\\Testy Selenium\\produkty.xlsx"
+df = pd.read_excel(excel_file)
+
+try:
+    #Iterujemy przez wiersze z użyciem data frame
+    for index, row in df.iterrows():
+        sku = row['sku'].strip().lower()
+        expected_price = row['cena']
+        product_url = f"https://www.sinsay.com/pl/pl/{sku}"  # Zakładam, że URL jest tworzony na podstawie SKU
+        print(f"Sprawdzanie ceny dla SKU: {sku}")
+        check_price_change(product_url, expected_price)
+
+finally:
         #Zamykamy witryne
         driver.quit()
-
-product_url = "https://www.sinsay.com/pl/pl/sukienka-z-golfem-430be-99x"
-expected_price = 29.99
-
-check_price_change(product_url, expected_price)
