@@ -5,49 +5,70 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import chromedriver_autoinstaller
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
+import time  # Importujemy moduł time
 
-# Automatically install the matching ChromeDriver version
+# Automatyczna instalacja odpowiedniej wersji ChromeDrivera
 chromedriver_autoinstaller.install()
 
-service = Service()  # No need to specify the path if using autoinstaller
-driver = webdriver.Chrome(service=service)
+# Funkcja do sprawdzania ceny
+def check_price_change(sku, expected_price):
+    product_url = f"https://www.sinsay.com/pl/pl/{sku}"
+    
+    service = Service()
+    driver = webdriver.Chrome(service=service)
 
-def check_price_change(product_url, expected_price):
     try:
-        #Otwieramy stronę z produktem
         driver.get(product_url)
-
-        #Czekamy aż strona się wczyta
-        price_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//div[@data-selen="product-price"]')))
-
-        #Wyciągamy obecną cene
+        price_element = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//div[@data-selen="product-price"]'))
+        )
         current_price = price_element.text.strip()
-        print(f"Aktualna cena: {current_price}")
-
-        #Czyścimy i porównywamy ceny
         current_price_value = float(current_price.replace('PLN', '').replace(',', '.').strip())
 
-        #Sprawdzamy czy cena się zmieniła
-        if current_price_value == expected_price:
-            print("Cena jest taka sama")
-        else:
-            print(f"Inna cena {current_price_value}")
+        if current_price_value != expected_price:
+            return {
+                'SKU': sku,
+                'Oczekiwana cena': expected_price,
+                'Aktualna cena': current_price_value,
+                'Status': f"Inna cena: {current_price_value}"
+            }
     except Exception as e:
-        print(f"Error occured: {e}")
+        return {'SKU': sku, 'Status': f"Błąd: {e}"}
+    finally:
+        driver.quit()
 
-#Wczytujemy dane z pliku excel
+# Wczytujemy dane z pliku Excel
 excel_file = "C:\\Users\\mimarek\\OneDrive - LPP S.A\\Desktop\\Testy Selenium\\produkty.xlsx"
 df = pd.read_excel(excel_file)
 
-try:
-    #Iterujemy przez wiersze z użyciem data frame
-    for index, row in df.iterrows():
-        sku = row['sku'].strip().lower()
-        expected_price = row['cena']
-        product_url = f"https://www.sinsay.com/pl/pl/{sku}"  # Zakładam, że URL jest tworzony na podstawie SKU
-        print(f"Sprawdzanie ceny dla SKU: {sku}")
-        check_price_change(product_url, expected_price)
+# Zaczynamy timer
+start_time = time.time()  # Mierzymy czas rozpoczęcia operacji
 
-finally:
-        #Zamykamy witryne
-        driver.quit()
+# Tworzymy listę do przechowywania wyników
+results = []
+
+# Uruchamiamy równoległe sprawdzanie cen
+with ThreadPoolExecutor(max_workers=4) as executor:  # Liczba wątków równoległych
+    futures = [
+        executor.submit(check_price_change, row['sku'].strip().lower(), row['cena'])
+        for _, row in df.iterrows()
+    ]
+    for future in futures:
+        result = future.result()
+        if result:
+            results.append(result)
+
+# Zapisujemy wyniki tylko, jeśli są rozbieżności
+if results:
+    results_df = pd.DataFrame(results)
+    output_file = "C:\\Users\\mimarek\\OneDrive - LPP S.A\\Desktop\\Testy Selenium\\wyniki.xlsx"
+    results_df.to_excel(output_file, index=False)
+    print(f"Wyniki zapisano w: {output_file}")
+else:
+    print("Wszystkie ceny były zgodne – brak wyników do zapisania.")
+
+# Zatrzymujemy timer i obliczamy czas trwania operacji
+end_time = time.time()  # Mierzymy czas zakończenia operacji
+duration = end_time - start_time  # Obliczamy czas trwania
+print(f"Czas trwania operacji: {duration:.2f} sekund")
